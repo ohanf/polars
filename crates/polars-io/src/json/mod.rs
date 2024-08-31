@@ -271,9 +271,17 @@ where
         let out = match self.json_format {
             JsonFormat::Json => {
                 polars_ensure!(!self.ignore_errors, InvalidOperation: "'ignore_errors' only supported in ndjson");
+                let owned = &mut vec![];
                 let mut bytes = rb.deref().to_vec();
-                let json_value =
-                    simd_json::to_borrowed_value(&mut bytes).map_err(to_compute_err)?;
+
+                maybe_decompress_bytes(&bytes, owned)?;
+                // the easiest way to avoid ownership issues is to implicitly figure out if
+                // decompression happened, then pick the appropriate bytes to parse
+                let json_value = if owned.is_empty() {
+                    simd_json::to_borrowed_value(&mut bytes).map_err(to_compute_err)?
+                } else {
+                    simd_json::to_borrowed_value(owned).map_err(to_compute_err)?
+                };
 
                 // struct type
                 let dtype = if let Some(mut schema) = self.schema {

@@ -46,29 +46,25 @@ pub fn get_reader_bytes<'a, R: Read + MmapBytesReader + ?Sized>(
 /// An `out` vec must be given for ownership of the decompressed data.
 pub fn maybe_decompress_bytes<'a>(bytes: &'a [u8], out: &'a mut Vec<u8>) -> PolarsResult<&'a [u8]> {
     assert!(out.is_empty());
-    use crate::prelude::is_compressed;
-    let is_compressed = bytes.len() >= 4 && is_compressed(bytes);
+    use crate::utils::compression::SupportedCompression;
 
-    if is_compressed {
+    if let Some(algo) = SupportedCompression::check(bytes) {
         #[cfg(any(feature = "decompress", feature = "decompress-fast"))]
         {
-            use crate::utils::compression::magic::*;
-
-            if bytes.starts_with(&GZIP) {
-                flate2::read::MultiGzDecoder::new(bytes)
-                    .read_to_end(out)
-                    .map_err(to_compute_err)?;
-            } else if bytes.starts_with(&ZLIB0)
-                || bytes.starts_with(&ZLIB1)
-                || bytes.starts_with(&ZLIB2)
-            {
-                flate2::read::ZlibDecoder::new(bytes)
-                    .read_to_end(out)
-                    .map_err(to_compute_err)?;
-            } else if bytes.starts_with(&ZSTD) {
-                zstd::Decoder::new(bytes)?.read_to_end(out)?;
-            } else {
-                polars_bail!(ComputeError: "unimplemented compression format")
+            match algo {
+                SupportedCompression::GZIP => {
+                    flate2::read::MultiGzDecoder::new(bytes)
+                        .read_to_end(out)
+                        .map_err(to_compute_err)?;
+                },
+                SupportedCompression::ZLIB => {
+                    flate2::read::ZlibDecoder::new(bytes)
+                        .read_to_end(out)
+                        .map_err(to_compute_err)?;
+                },
+                SupportedCompression::ZSTD => {
+                    zstd::Decoder::new(bytes)?.read_to_end(out)?;
+                },
             }
 
             Ok(out)
